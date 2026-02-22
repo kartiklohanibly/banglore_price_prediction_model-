@@ -1,51 +1,30 @@
-import streamlit as st
-import pickle
+from data_preprocessing import clean_text
+from vectorizer import TFIDF
+from model import LogisticRegressionScratch
+from translator import detect_language, translate
 import numpy as np
-import json
-import os
 
-# Load model
-try:
-    with open('banglore_home_prices_model.pickle', 'rb') as f:
-        model = pickle.load(f)
-except FileNotFoundError:
-    st.error("❌ Model file not found. Please ensure 'banglore_home_prices_model.pickle' is in the same directory.")
-    st.stop()
+reviews = ["this movie is great", "worst movie ever"]
+labels = np.array([1, 0])
 
-# Load columns
-try:
-    with open("columns.json", "r") as f:
-        columns_data = json.load(f)
-        data_columns = columns_data['data_columns']
-        location_list = data_columns[3:]  # First 3 are sqft, bath, bhk
-except FileNotFoundError:
-    st.error("❌ Columns file not found. Please ensure 'columns.json' is in the same directory.")
-    st.stop()
+cleaned = [clean_text(r) for r in reviews]
 
-# Streamlit UI
-st.set_page_config(page_title="Bangalore House Price Predictor", layout="centered")
-st.title("🏠 Bangalore House Price Predictor")
-st.markdown("### Enter the property details below:")
+vectorizer = TFIDF()
+vectorizer.fit(cleaned)
+X = vectorizer.transform(cleaned)
 
-# Inputs
-location = st.selectbox("📍 Location", sorted(location_list))
-sqft = st.number_input("📐 Total Square Feet", min_value=300.0, max_value=10000.0, step=10.0)
-bath = st.number_input("🛁 Number of Bathrooms", min_value=1, max_value=10, step=1)
-bhk = st.number_input("🛏️ Number of BHK", min_value=1, max_value=10, step=1)
+model = LogisticRegressionScratch()
+model.fit(X, labels)
 
-if st.button("Predict Price"):
-    try:
-        # Build feature array
-        x = np.zeros(len(data_columns))
-        x[0] = sqft
-        x[1] = bath
-        x[2] = bhk
-        if location.lower() in [l.lower() for l in location_list]:
-            idx = data_columns.index(location.lower())
-            x[idx] = 1
-
-        prediction = model.predict([x])[0]
-        adjusted_prediction = prediction / 10  # Adjust price scale here
-        st.success(f"💰 Estimated Price: ₹ {adjusted_prediction:,.2f} Lakhs")
-    except Exception as e:
-        st.error(f"Error during prediction: {e}")
+def predict_sentiment(text):
+    lang = detect_language(text)
+    if lang != "en":
+        text = translate(text, lang, "en")
+    cleaned_text = clean_text(text)
+    vec = vectorizer.transform([cleaned_text])
+    score = model.predict(vec)
+    sentiment = "Positive" if score >= 0.5 else "Negative"
+    feedback = "People liked this movie" if sentiment == "Positive" else "People disliked this movie"
+    if lang != "en":
+        feedback = translate(feedback, "en", lang)
+    return sentiment, feedback
